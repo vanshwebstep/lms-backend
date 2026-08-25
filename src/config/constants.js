@@ -1,5 +1,6 @@
 const ROLES = {
   ADMIN: 'superadmin',
+  SUPER_ADMIN: 'superadmin',
   COACH: 'coach',
   STUDENT: 'student',
 }

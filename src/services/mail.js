@@ -52,8 +52,8 @@ const parseRecipients = (raw) => {
 // `to` is optional — if omitted, the recipient stored on the config row's `to` column is used
 // (useful for fixed-recipient mails like admin notifications). `cc`/`bcc` passed in are merged
 // with whatever is already saved on the config row.
-const sendMail = async ({ module, action, to, cc, bcc, vars = {} }) => {
-  const config = await emailConfigModel.findConfig(module, action)
+const sendMail = async ({ module, action, coachId, to, cc, bcc, vars = {} }) => {
+  const config = await emailConfigModel.findConfig(module, action, coachId)
   if (!config) {
     console.log(`[mail:dev] no email_configs row for module="${module}" action="${action}"`)
     return { sent: false, reason: `No email_configs row for module="${module}" action="${action}"` }

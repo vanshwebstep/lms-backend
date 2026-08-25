@@ -35,6 +35,7 @@ const notifyAndEmailPurchase = async ({ user, course, payment }) => {
     sendMail({
       module: 'student',
       action: 'course-purchased',
+      coachId: course.coach_id,
       to: user.email,
       vars: { ...mailVars, name: user.name },
     }),
@@ -42,6 +43,7 @@ const notifyAndEmailPurchase = async ({ user, course, payment }) => {
       sendMail({
         module: 'coach',
         action: 'course-enrolled',
+        coachId: course.coach_id,
         to: coach.email,
         vars: { ...mailVars, name: coach.name },
       }),

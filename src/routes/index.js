@@ -9,6 +9,7 @@ const notificationRoutes = require("./notification.routes");
 const searchRoutes = require("./search.routes");
 const uploadRoutes = require("./upload.routes");
 const masterDataRoutes = require("./masterData.routes");
+const emailConfigRoutes = require("./emailConfig.routes");
 
 const registerRoutes = (route) => {
   authRoutes.register(route);
@@ -22,6 +23,7 @@ const registerRoutes = (route) => {
   searchRoutes.register(route);
   uploadRoutes.register(route);
   masterDataRoutes.register(route);
+  emailConfigRoutes.register(route);
 };
 
 module.exports = { registerRoutes };
