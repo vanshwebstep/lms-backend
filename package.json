@@ -1,0 +1,21 @@
+{
+  "name": "lms-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mysql2": "^3.15.3",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
