@@ -1,6 +1,7 @@
-﻿const env = require('../config/env')
+const env = require('../config/env')
 const db = require('../config/db')
 const { makeId } = require('../utils/id')
+const { createAndConfirmPayment } = require('../utils/payments/stripeHelper')
 
 const hydratePaymentRows = (rows) =>
   rows.map((row) => ({
@@ -73,6 +74,96 @@ const createOrder = async ({ studentId, courseId, studentDetails }) => {
   }
 }
 
+const payAndEnrollWithStripe = async ({
+  student,
+  courseId,
+  name,
+  email,
+  phone,
+  cardNumber,
+  expiry,
+  cvc,
+}) => {
+  const course = await db.first('SELECT * FROM courses WHERE id = ? AND status = "published"', [courseId])
+  if (!course) return { notFound: true }
+
+  const existing = await db.first(
+    'SELECT * FROM enrollments WHERE student_id = ? AND course_id = ? AND status = "active"',
+    [student.id, courseId]
+  )
+  if (existing) return { alreadyEnrolled: true, enrollment: existing, course }
+
+  const studentName = name || student.name || 'Student'
+  const studentEmail = email || student.email || ''
+  const studentPhone = phone || ''
+
+  let paymentIntent
+  try {
+    paymentIntent = await createAndConfirmPayment(
+      course.price,
+      course.currency || 'inr',
+      { name: studentName, email: studentEmail, phone: studentPhone, cardNumber, expiry, cvc },
+      {
+        course_id: String(course.id),
+        student_id: String(student.id),
+        course_title: course.title,
+        name: studentName,
+      },
+      studentEmail
+    )
+  } catch (err) {
+    return { failed: true, message: err.message || 'Stripe payment failed', details: err.message }
+  }
+
+  if (!paymentIntent || paymentIntent.status !== 'succeeded') {
+    return {
+      failed: true,
+      message: 'Payment was not successful',
+      details: paymentIntent,
+    }
+  }
+
+  const paymentRowId = makeId('payment')
+  const enrollmentId = makeId('enrollment')
+  const orderId = makeId('order')
+
+  await db.withTransaction(async (connection) => {
+    await connection.execute(
+      `INSERT INTO payments
+       (id, order_id, provider_payment_id, provider, student_id, coach_id, course_id, amount, currency, status, student_details, gateway_response, paid_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        paymentRowId,
+        orderId,
+        paymentIntent.id,
+        'stripe',
+        student.id,
+        course.coach_id,
+        course.id,
+        Number(course.price),
+        course.currency || 'INR',
+        'success',
+        JSON.stringify({ name: studentName, email: studentEmail, phone: studentPhone }),
+        JSON.stringify(paymentIntent),
+        new Date(),
+      ]
+    )
+
+    await connection.execute(
+      `INSERT INTO enrollments
+       (id, student_id, coach_id, course_id, payment_id, amount, currency, status, progress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0)`,
+      [enrollmentId, student.id, course.coach_id, course.id, paymentRowId, Number(course.price), course.currency || 'INR']
+    )
+  })
+
+  return {
+    enrollment: await db.first('SELECT * FROM enrollments WHERE id = ?', [enrollmentId]),
+    payment: (await listPayments({ paymentId: paymentRowId }))[0],
+    course,
+  }
+}
+
 const completePurchase = async ({ student, courseId, orderId, paymentId, studentDetails = {}, payment = {} }) => {
   const course = await db.first('SELECT * FROM courses WHERE id = ? AND status = "published"', [courseId])
   if (!course) return { notFound: true }
@@ -85,9 +176,10 @@ const completePurchase = async ({ student, courseId, orderId, paymentId, student
 
   const paymentRowId = makeId('payment')
   const enrollmentId = makeId('enrollment')
-  const provider = payment.provider || env.paymentProvider || 'demo'
+  const provider = payment.provider || env.paymentProvider || 'stripe'
+  const isStripe = provider === 'stripe'
   const demoApproved = env.paymentProvider === 'demo' || provider === 'demo' || payment.demo === true
-  const status = demoApproved ? 'success' : (payment.status === 'failed' ? 'failed' : 'success')
+  const status = (demoApproved || isStripe) ? 'success' : (payment.status === 'failed' ? 'failed' : 'success')
   const gatewayResponse = {
     ...payment,
     provider,
@@ -103,7 +195,7 @@ const completePurchase = async ({ student, courseId, orderId, paymentId, student
       [
         paymentRowId,
         orderId || makeId('order'),
-        paymentId || payment.providerPaymentId || `demo_${Date.now()}`,
+        paymentId || payment.providerPaymentId || `stripe_${Date.now()}`,
         provider,
         student.id,
         course.coach_id,
@@ -156,4 +248,4 @@ const listPayments = async ({ role, userId, paymentId } = {}) => {
   return hydratePaymentRows(rows)
 }
 
-module.exports = { createOrder, completePurchase, listPayments }
+module.exports = { createOrder, completePurchase, payAndEnrollWithStripe, listPayments }

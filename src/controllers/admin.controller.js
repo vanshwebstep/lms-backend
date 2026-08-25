@@ -30,7 +30,7 @@ const createCoach = async (ctx) => {
 
   await db.withTransaction(async (connection) => userModel.create(connection, coach, body.profile || {}))
   const saved = await userModel.findById(coach.id)
-console.log(`Sending coach-created email to ${saved.email}...`)
+  console.log(`Sending coach-created email to ${saved.email}...`)
   await sendMail({
     module: 'admin',
     action: 'coach-created',

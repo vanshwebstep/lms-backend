@@ -1,4 +1,4 @@
-﻿const fs = require('fs')
+const fs = require('fs')
 const path = require('path')
 
 const root = path.resolve(__dirname, '..', '..')
@@ -39,6 +39,9 @@ const env = {
   razorpay: {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+  },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
   },
 }
 
