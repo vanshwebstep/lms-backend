@@ -70,11 +70,11 @@ const create = async (connection, user, profile = {}) => {
   await connection.execute(
     `INSERT INTO users (id, name, email, role, title, status, avatar_url, password_hash, salt, email_verified_at)
      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, NOW())`,
-    [user.id, user.name, cleanEmail(user.email), user.role, user.title, user.avatar || null, user.passwordHash, user.salt]
+    [user.id, user.name, cleanEmail(user.email), user.role, user.title || '', user.avatar || null, user.passwordHash, user.salt]
   )
   await connection.execute(
-    `INSERT INTO user_profiles (user_id, phone, city, bio, expertise, education, metadata)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO user_profiles (user_id, phone, city, bio, expertise, education, address_line1, address_line2, state, country, pincode, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       user.id,
       profile.phone || null,
@@ -82,6 +82,11 @@ const create = async (connection, user, profile = {}) => {
       profile.bio || null,
       profile.expertise || null,
       profile.education || null,
+      profile.addressLine1 || profile.address || null,
+      profile.addressLine2 || null,
+      profile.state || null,
+      profile.country || 'India',
+      profile.pincode || profile.zip || null,
       profile.metadata ? JSON.stringify(profile.metadata) : null,
     ]
   )

@@ -1,4 +1,4 @@
-﻿const adminController = require('../controllers/admin.controller')
+const adminController = require('../controllers/admin.controller')
 const { auth } = require('../middleware/auth')
 const { ROLES } = require('../config/constants')
 
@@ -12,6 +12,10 @@ const register = (route) => {
   route('PATCH', '/api/admin/coaches/:id', [adminOnly, adminController.updateCoach])
   route('DELETE', '/api/admin/coaches/:id', [adminOnly, adminController.deleteCoach])
   route('GET', '/api/admin/students', [adminOnly, adminController.students])
+  route('POST', '/api/admin/students', [adminOnly, adminController.createStudent])
+  route('PUT', '/api/admin/students/:id', [adminOnly, adminController.updateStudent])
+  route('PATCH', '/api/admin/students/:id', [adminOnly, adminController.updateStudent])
+  route('DELETE', '/api/admin/students/:id', [adminOnly, adminController.deleteStudent])
   route('GET', '/api/admin/payments', [adminOnly, adminController.payments])
   route('GET', '/api/admin/reports', [adminOnly, adminController.reports])
   route('GET', '/api/admin/settings', [adminOnly, adminController.getSettings])

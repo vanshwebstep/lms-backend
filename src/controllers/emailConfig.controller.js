@@ -129,9 +129,23 @@ const testSend = async (ctx) => {
     studentEmail: toEmail,
   }
 
+  // If draft subject/html is passed from the builder, send it directly using active SMTP config
+  if (ctx.body?.html_template || ctx.body?.subject) {
+    const config = await emailConfigModel.findConfig(
+      template.module,
+      template.action,
+      template.coach_id || (ctx.user.role === 'coach' ? ctx.user.id : null)
+    )
+    if (config) {
+      if (ctx.body.subject) config.subject = ctx.body.subject
+      if (ctx.body.html_template) config.html_template = ctx.body.html_template
+    }
+  }
+
   const result = await sendMail({
     module: template.module,
     action: template.action,
+    coachId: template.coach_id || (ctx.user.role === 'coach' ? ctx.user.id : null),
     to: toEmail,
     vars,
   })

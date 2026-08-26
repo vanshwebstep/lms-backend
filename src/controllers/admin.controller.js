@@ -1,4 +1,4 @@
-﻿const db = require('../config/db')
+const db = require('../config/db')
 const { ROLES } = require('../config/constants')
 const { ok, created, fail } = require('../utils/response')
 const userModel = require('../models/user.model')
@@ -189,6 +189,110 @@ const students = async (ctx) => {
   return ok(ctx.res, { students: list })
 }
 
+const createStudent = async (ctx) => {
+  const body = ctx.body || {}
+  if (!body.name || !body.email) return fail(ctx.res, 400, 'Student name and email are required')
+  if (await userModel.findByEmail(body.email)) return fail(ctx.res, 409, 'Email is already registered')
+
+  const password = body.password || 'password123'
+  const hashed = hashPassword(password)
+  const student = {
+    id: makeId('student'),
+    name: String(body.name).trim(),
+    email: userModel.cleanEmail(body.email),
+    role: ROLES.STUDENT,
+    title: body.title || 'Student',
+    passwordHash: hashed.passwordHash,
+    salt: hashed.salt,
+  }
+
+  const profile = {
+    phone: body.phone || body.profile?.phone || null,
+    country: body.country || body.profile?.country || 'India',
+    state: body.state || body.profile?.state || null,
+    city: body.city || body.profile?.city || null,
+    addressLine1: body.addressLine1 || body.address || body.profile?.addressLine1 || null,
+    addressLine2: body.addressLine2 || body.profile?.addressLine2 || null,
+    pincode: body.pincode || body.zip || body.profile?.pincode || null,
+    bio: body.bio || body.profile?.bio || null,
+  }
+
+  await db.withTransaction(async (connection) => userModel.create(connection, student, profile))
+  const saved = await userModel.findById(student.id)
+
+  console.log(`Sending student-registered email to ${saved.email}...`)
+  await sendMail({
+    module: 'student',
+    action: 'student-registered',
+    to: saved.email,
+    vars: {
+      name: saved.name,
+      appName: env.appName,
+      email: saved.email,
+      password,
+    },
+  })
+
+  return created(ctx.res, { student: userModel.toPublicUser(saved), defaultPassword: password })
+}
+
+const updateStudent = async (ctx) => {
+  const student = await userModel.findById(ctx.params.id)
+  if (!student || student.role !== ROLES.STUDENT) return fail(ctx.res, 404, 'Student not found')
+
+  const body = ctx.body || {}
+  if (body.email && userModel.cleanEmail(body.email) !== student.email) {
+    const existing = await userModel.findByEmail(body.email)
+    if (existing && existing.id !== student.id) return fail(ctx.res, 409, 'Email is already registered')
+  }
+
+  await db.query(
+    `UPDATE users SET name = ?, email = ?, title = ?, status = ?, avatar_url = ? WHERE id = ? AND role = 'student'`,
+    [
+      body.name ?? student.name,
+      body.email ? userModel.cleanEmail(body.email) : student.email,
+      body.title ?? student.title,
+      body.status ?? student.status,
+      body.avatar ?? student.avatar,
+      student.id,
+    ]
+  )
+
+  const profile = {
+    phone: body.phone !== undefined ? body.phone : body.profile?.phone,
+    country: body.country !== undefined ? body.country : body.profile?.country,
+    state: body.state !== undefined ? body.state : body.profile?.state,
+    city: body.city !== undefined ? body.city : body.profile?.city,
+    addressLine1: body.addressLine1 !== undefined ? body.addressLine1 : (body.address || body.profile?.addressLine1),
+    addressLine2: body.addressLine2 !== undefined ? body.addressLine2 : body.profile?.addressLine2,
+    pincode: body.pincode !== undefined ? body.pincode : (body.zip || body.profile?.pincode),
+    bio: body.bio !== undefined ? body.bio : body.profile?.bio,
+  }
+
+  await userModel.updateProfile(student.id, { profile })
+  if (body.password) await userModel.changePassword(student.id, hashPassword(body.password))
+
+  const saved = await userModel.findById(student.id)
+  return ok(ctx.res, { student: userModel.toPublicUser(saved) })
+}
+
+const deleteStudent = async (ctx) => {
+  const student = await userModel.findById(ctx.params.id)
+  if (!student || student.role !== ROLES.STUDENT) return fail(ctx.res, 404, 'Student not found')
+
+  await db.withTransaction(async (connection) => {
+    await connection.execute('DELETE FROM enrollments WHERE student_id = ?', [student.id])
+    await connection.execute('DELETE FROM lesson_progress WHERE student_id = ?', [student.id])
+    await connection.execute('DELETE FROM quiz_attempts WHERE student_id = ?', [student.id])
+    await connection.execute('DELETE FROM assignment_submissions WHERE student_id = ?', [student.id])
+    await connection.execute('DELETE FROM certificates WHERE student_id = ?', [student.id])
+    await connection.execute('DELETE FROM user_profiles WHERE user_id = ?', [student.id])
+    await connection.execute('DELETE FROM users WHERE id = ? AND role = ?', [student.id, ROLES.STUDENT])
+  })
+
+  return ok(ctx.res, { deleted: true, studentId: student.id })
+}
+
 const courses = async (ctx) => ok(ctx.res, { courses: await courseModel.listAll() })
 const payments = async (ctx) => ok(ctx.res, { payments: await paymentModel.listPayments() })
 
@@ -257,6 +361,9 @@ module.exports = {
   createCoach,
   updateCoach,
   deleteCoach,
+  createStudent,
+  updateStudent,
+  deleteStudent,
   stats,
   coaches,
   students,

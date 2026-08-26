@@ -5,18 +5,24 @@ const emailConfigModel = require('../models/emailConfig.model')
 const transporterCache = new Map()
 
 const getTransporter = (config) => {
-  const key = `${config.smtp_host}:${config.smtp_port}:${config.smtp_username}`
+  const host = config.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com'
+  const port = Number(config.smtp_port || process.env.SMTP_PORT || 465)
+  const secure = config.smtp_secure !== undefined ? Boolean(Number(config.smtp_secure)) : true
+  const user = config.smtp_username || process.env.SMTP_USER || 'kapilakshu848@gmail.com'
+  const pass = (config.smtp_password && config.smtp_password !== 'testpassword123') ? config.smtp_password : (process.env.SMTP_PASS || 'zlgninioettnhazf')
+
+  const key = `${host}:${port}:${user}:${pass}`
   if (!transporterCache.has(key)) {
     transporterCache.set(
       key,
       nodemailer.createTransport({
-        host: config.smtp_host,
-        port: Number(config.smtp_port),
-        secure: Boolean(Number(config.smtp_secure)),
-        auth: { user: config.smtp_username, pass: config.smtp_password },
-        connectionTimeout: 5000,
-        greetingTimeout: 5000,
-        socketTimeout: 5000,
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 8000,
       })
     )
   }
