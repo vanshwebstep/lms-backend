@@ -8,7 +8,10 @@ const hashPassword = (password, salt = crypto.randomBytes(16).toString('hex')) =
 const verifyPassword = (password, user) => {
   if (!user?.salt || !user?.passwordHash) return false
   const check = hashPassword(password, user.salt).passwordHash
-  return crypto.timingSafeEqual(Buffer.from(check), Buffer.from(user.passwordHash))
+  const checkBuf = Buffer.from(check, 'hex')
+  const userBuf = Buffer.from(user.passwordHash, 'hex')
+  if (checkBuf.length !== userBuf.length) return false
+  return crypto.timingSafeEqual(checkBuf, userBuf)
 }
 
 module.exports = { hashPassword, verifyPassword }

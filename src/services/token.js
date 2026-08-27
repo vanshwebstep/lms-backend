@@ -24,7 +24,9 @@ const readToken = (token) => {
   if (parts.length !== 3) throw new Error('Malformed token')
   const [header, payload, signature] = parts
   const expected = sign(`${header}.${payload}`)
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const sigBuf = Buffer.from(signature, 'base64url')
+  const expBuf = Buffer.from(expected, 'base64url')
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     throw new Error('Invalid token signature')
   }
   const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))

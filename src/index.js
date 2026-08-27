@@ -263,12 +263,18 @@ const sendUpload = (req, res, pathname) => {
     ".html": "text/html; charset=utf-8",
   };
 
-  res.writeHead(200, {
-    "Content-Type":
-      types[ext] || "application/octet-stream",
-    "Cache-Control":
-      "public, max-age=31536000, immutable",
-  });
+  const headers = {
+    "Content-Type": types[ext] || "application/octet-stream",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  };
+
+  // Prevent XSS from user-uploaded HTML/SVG files
+  if (ext === ".html" || ext === ".svg") {
+    headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+  }
+
+  res.writeHead(200, headers);
 
   fs.createReadStream(fullPath).pipe(res);
 
@@ -323,6 +329,10 @@ const handle = async (req, res) => {
       "Access-Control-Allow-Methods",
       "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     );
+
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
 
     /**
      * OPTIONS / CORS preflight
