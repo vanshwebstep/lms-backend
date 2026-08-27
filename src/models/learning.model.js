@@ -29,6 +29,7 @@ const mapLesson = (row) => ({
   durationMinutes: Number(row.duration_minutes || 0),
   isPreview: Boolean(row.is_preview),
   sortOrder: Number(row.sort_order || 0),
+  dripDays: Number(row.drip_days || 0),
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -85,16 +86,27 @@ const listLessonsForStudentCourse = async (studentId, courseId) => {
     [enrollment.id, courseId]
   )
 
+  const enrollmentTime = new Date(enrollment.created_at).getTime()
+  const now = Date.now()
+
   return {
     enrollment,
-    lessons: rows.map((row) => ({
-      ...mapLesson(row),
-      progress: {
-        status: row.progress_status || 'not_started',
-        watchedSeconds: Number(row.watched_seconds || 0),
-        completedAt: row.completed_at,
-      },
-    })),
+    lessons: rows.map((row) => {
+      const lesson = mapLesson(row)
+      const unlocksAt = new Date(enrollmentTime + lesson.dripDays * 24 * 60 * 60 * 1000)
+      const isLocked = lesson.dripDays > 0 && unlocksAt.getTime() > now
+      
+      return {
+        ...lesson,
+        isLocked,
+        unlocksAt: isLocked ? unlocksAt.toISOString() : null,
+        progress: {
+          status: row.progress_status || 'not_started',
+          watchedSeconds: Number(row.watched_seconds || 0),
+          completedAt: row.completed_at,
+        },
+      }
+    }),
   }
 }
 
@@ -110,29 +122,30 @@ const findLessonForCoach = async (lessonId, coachId) => {
   return row ? mapLesson(row) : null
 }
 
-const createLesson = async (coachId, body) => {
-  const course = await db.first('SELECT id FROM courses WHERE id = ? AND coach_id = ?', [body.courseId, coachId])
-  if (!course) return null
-  const id = makeId('lesson')
-  await db.query(
-    `INSERT INTO lessons
-     (id, course_id, title, description, content_type, content_url, duration_minutes, is_preview, sort_order, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      body.courseId,
-      String(body.title || '').trim(),
-      String(body.description || '').trim() || null,
-      normalizeContentType(body.contentType || body.type),
-      body.contentUrl || body.videoUrl || body.url || null,
-      Number(body.durationMinutes || body.duration || 0),
-      body.isPreview || body.isFreePreview ? 1 : 0,
-      Number(body.sortOrder || body.order || 0),
-      body.status || 'draft',
-    ]
-  )
-  return findLessonForCoach(id, coachId)
-}
+  const createLesson = async (coachId, body) => {
+    const course = await db.first('SELECT id FROM courses WHERE id = ? AND coach_id = ?', [body.courseId, coachId])
+    if (!course) return null
+    const id = makeId('lesson')
+    await db.query(
+      `INSERT INTO lessons
+       (id, course_id, title, description, content_type, content_url, duration_minutes, is_preview, sort_order, drip_days, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        body.courseId,
+        String(body.title || '').trim(),
+        String(body.description || '').trim() || null,
+        normalizeContentType(body.contentType || body.type),
+        body.contentUrl || body.videoUrl || body.url || null,
+        Number(body.durationMinutes || body.duration || 0),
+        body.isPreview || body.isFreePreview ? 1 : 0,
+        Number(body.sortOrder || body.order || 0),
+        Number(body.dripDays || 0),
+        body.status || 'draft',
+      ]
+    )
+    return findLessonForCoach(id, coachId)
+  }
 
 const updateLesson = async (lessonId, coachId, body) => {
   const existing = await findLessonForCoach(lessonId, coachId)
@@ -143,7 +156,7 @@ const updateLesson = async (lessonId, coachId, body) => {
   await db.query(
     `UPDATE lessons
      SET course_id = ?, title = ?, description = ?, content_type = ?, content_url = ?,
-         duration_minutes = ?, is_preview = ?, sort_order = ?, status = ?
+         duration_minutes = ?, is_preview = ?, sort_order = ?, drip_days = ?, status = ?
      WHERE id = ?`,
     [
       courseId,
@@ -154,6 +167,7 @@ const updateLesson = async (lessonId, coachId, body) => {
       Number(body.durationMinutes ?? body.duration ?? existing.durationMinutes ?? 0),
       body.isPreview ?? body.isFreePreview ?? existing.isPreview ? 1 : 0,
       Number(body.sortOrder ?? body.order ?? existing.sortOrder ?? 0),
+      Number(body.dripDays ?? existing.dripDays ?? 0),
       body.status || existing.status || 'draft',
       lessonId,
     ]
@@ -248,13 +262,20 @@ const removeTopic = async (topicId, coachId) => {
 
 const updateLessonProgress = async (studentId, lessonId, body = {}) => {
   const row = await db.first(
-    `SELECT e.id AS enrollment_id, e.course_id
+    `SELECT e.id AS enrollment_id, e.course_id, e.created_at, l.drip_days
      FROM enrollments e
      JOIN lessons l ON l.course_id = e.course_id
      WHERE e.student_id = ? AND l.id = ? AND e.status = 'active'`,
     [studentId, lessonId]
   )
   if (!row) return null
+
+  if (row.drip_days > 0) {
+    const unlocksAt = new Date(new Date(row.created_at).getTime() + row.drip_days * 24 * 60 * 60 * 1000)
+    if (unlocksAt.getTime() > Date.now()) {
+      throw new Error('Lesson is locked')
+    }
+  }
 
   const status = body.status || (body.completed ? 'completed' : 'in_progress')
   await db.query(

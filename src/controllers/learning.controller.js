@@ -122,25 +122,40 @@ const studentCourseContent = async (ctx) => {
 }
 
 const updateStudentLessonProgress = async (ctx) => {
-  const progress = await learningModel.updateLessonProgress(ctx.user.id, ctx.params.id, ctx.body)
-  if (!progress) return fail(ctx.res, 404, 'Lesson not found in your enrolled courses')
-  return ok(ctx.res, { progress })
+  try {
+    const progress = await learningModel.updateLessonProgress(ctx.user.id, ctx.params.id, ctx.body)
+    if (!progress) return fail(ctx.res, 404, 'Lesson not found in your enrolled courses')
+    return ok(ctx.res, { progress })
+  } catch (error) {
+    if (error.message === 'Lesson is locked') return fail(ctx.res, 403, error.message)
+    throw error
+  }
 }
 
 const listStudentQuizzes = async (ctx) => ok(ctx.res, { quizzes: await quizModel.listForStudent(ctx.user.id) })
 
 const attemptStudentQuiz = async (ctx) => {
-  const attempt = await quizModel.attempt(ctx.user.id, ctx.params.id, ctx.body.answers || {})
-  if (!attempt) return fail(ctx.res, 404, 'Quiz not found in your enrolled courses')
-  return created(ctx.res, { attempt })
+  try {
+    const attempt = await quizModel.attempt(ctx.user.id, ctx.params.id, ctx.body.answers || {})
+    if (!attempt) return fail(ctx.res, 404, 'Quiz not found in your enrolled courses')
+    return created(ctx.res, { attempt })
+  } catch (error) {
+    if (error.message === 'Quiz is locked') return fail(ctx.res, 403, error.message)
+    throw error
+  }
 }
 
 const listStudentAssignments = async (ctx) => ok(ctx.res, { assignments: await assignmentModel.listForStudent(ctx.user.id) })
 
 const submitStudentAssignment = async (ctx) => {
-  const submission = await assignmentModel.submitForStudent(ctx.user.id, ctx.params.id, ctx.body)
-  if (!submission) return fail(ctx.res, 404, 'Assignment not found in your enrolled courses')
-  return created(ctx.res, { submission })
+  try {
+    const submission = await assignmentModel.submitForStudent(ctx.user.id, ctx.params.id, ctx.body)
+    if (!submission) return fail(ctx.res, 404, 'Assignment not found in your enrolled courses')
+    return created(ctx.res, { submission })
+  } catch (error) {
+    if (error.message === 'Assignment is locked') return fail(ctx.res, 403, error.message)
+    throw error
+  }
 }
 
 const listStudentCertificates = async (ctx) =>

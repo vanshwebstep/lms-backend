@@ -12,6 +12,7 @@ const mapAssignment = (row) => row && ({
   attachmentName: row.attachment_name || '',
   dueAt: row.due_at,
   maxScore: Number(row.max_score || 0),
+  dripDays: Number(row.drip_days || 0),
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -54,8 +55,8 @@ const create = async (coachId, body) => {
   const id = makeId('assignment')
   await db.query(
     `INSERT INTO assignments
-     (id, course_id, lesson_id, title, description, attachment_url, attachment_name, due_at, max_score, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, course_id, lesson_id, title, description, attachment_url, attachment_name, due_at, max_score, drip_days, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       body.courseId,
@@ -66,6 +67,7 @@ const create = async (coachId, body) => {
       body.attachmentName || null,
       body.dueAt || body.dueDate || null,
       Number(body.maxScore || 100),
+      Number(body.dripDays || 0),
       body.status || 'published',
     ]
   )
@@ -81,7 +83,7 @@ const update = async (assignmentId, coachId, body) => {
 
   await db.query(
     `UPDATE assignments
-     SET course_id = ?, lesson_id = ?, title = ?, description = ?, attachment_url = ?, attachment_name = ?, due_at = ?, max_score = ?, status = ?
+     SET course_id = ?, lesson_id = ?, title = ?, description = ?, attachment_url = ?, attachment_name = ?, due_at = ?, max_score = ?, drip_days = ?, status = ?
      WHERE id = ?`,
     [
       courseId,
@@ -92,6 +94,7 @@ const update = async (assignmentId, coachId, body) => {
       body.attachmentName !== undefined ? body.attachmentName : existing.attachmentName || null,
       body.dueAt || body.dueDate || existing.dueAt || null,
       Number(body.maxScore ?? existing.maxScore ?? 100),
+      Number(body.dripDays ?? existing.dripDays ?? 0),
       body.status || existing.status || 'published',
       assignmentId,
     ]
@@ -161,7 +164,8 @@ const reviewSubmissionForCoach = async (submissionId, coachId, body) => {
 const listForStudent = async (studentId) => {
   const rows = await db.query(
     `SELECT a.*, c.title AS course_title, s.id AS submission_id, s.answer_text, s.file_url,
-            s.status AS submission_status, s.score, s.feedback, s.submitted_at, s.graded_at
+            s.status AS submission_status, s.score, s.feedback, s.submitted_at, s.graded_at,
+            e.created_at AS enrollment_date
      FROM assignments a
      JOIN courses c ON c.id = a.course_id
      JOIN enrollments e ON e.course_id = a.course_id AND e.student_id = ? AND e.status = 'active'
@@ -170,32 +174,51 @@ const listForStudent = async (studentId) => {
      ORDER BY COALESCE(a.due_at, a.created_at) DESC`,
     [studentId, studentId]
   )
-  return rows.map((row) => ({
-    assignment: mapAssignment(row),
-    submission: row.submission_id
-      ? {
-          id: row.submission_id,
-          answerText: row.answer_text || '',
-          fileUrl: row.file_url || '',
-          status: row.submission_status,
-          score: row.score === null ? null : Number(row.score),
-          feedback: row.feedback || '',
-          submittedAt: row.submitted_at,
-          gradedAt: row.graded_at,
-        }
-      : null,
-  }))
+  const now = Date.now()
+  return rows.map((row) => {
+    const assignment = mapAssignment(row)
+    const enrollmentTime = new Date(row.enrollment_date).getTime()
+    const unlocksAt = new Date(enrollmentTime + assignment.dripDays * 24 * 60 * 60 * 1000)
+    const isLocked = assignment.dripDays > 0 && unlocksAt.getTime() > now
+    
+    return {
+      assignment: {
+        ...assignment,
+        isLocked,
+        unlocksAt: isLocked ? unlocksAt.toISOString() : null,
+      },
+      submission: row.submission_id
+        ? {
+            id: row.submission_id,
+            answerText: row.answer_text || '',
+            fileUrl: row.file_url || '',
+            status: row.submission_status,
+            score: row.score === null ? null : Number(row.score),
+            feedback: row.feedback || '',
+            submittedAt: row.submitted_at,
+            gradedAt: row.graded_at,
+          }
+        : null,
+    }
+  })
 }
 
 const submitForStudent = async (studentId, assignmentId, body) => {
   const row = await db.first(
-    `SELECT a.*, e.id AS enrollment_id
+    `SELECT a.*, e.id AS enrollment_id, e.created_at, a.drip_days
      FROM assignments a
      JOIN enrollments e ON e.course_id = a.course_id AND e.student_id = ? AND e.status = 'active'
      WHERE a.id = ? AND a.status = 'published'`,
     [studentId, assignmentId]
   )
   if (!row) return null
+
+  if (row.drip_days > 0) {
+    const unlocksAt = new Date(new Date(row.created_at).getTime() + row.drip_days * 24 * 60 * 60 * 1000)
+    if (unlocksAt.getTime() > Date.now()) {
+      throw new Error('Assignment is locked')
+    }
+  }
   const existing = await db.first('SELECT id FROM assignment_submissions WHERE assignment_id = ? AND student_id = ?', [assignmentId, studentId])
   if (existing) {
     await db.query(

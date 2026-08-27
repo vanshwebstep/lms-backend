@@ -21,6 +21,7 @@ const mapQuiz = (row) => ({
   title: row.title,
   description: row.description || '',
   passingScore: Number(row.passing_score || 50),
+  dripDays: Number(row.drip_days || 0),
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -99,8 +100,8 @@ const create = async (coachId, body) => {
   const id = makeId('quiz')
   await db.withTransaction(async (connection) => {
     await connection.execute(
-      `INSERT INTO quizzes (id, course_id, lesson_id, title, description, passing_score, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quizzes (id, course_id, lesson_id, title, description, passing_score, drip_days, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         body.courseId,
@@ -108,6 +109,7 @@ const create = async (coachId, body) => {
         String(body.title || '').trim(),
         body.description || null,
         Number(body.passingScore || body.passMark || 50),
+        Number(body.dripDays || 0),
         body.status || 'draft',
       ]
     )
@@ -124,7 +126,7 @@ const update = async (quizId, coachId, body) => {
   if (!course) return null
   await db.withTransaction(async (connection) => {
     await connection.execute(
-      `UPDATE quizzes SET course_id = ?, lesson_id = ?, title = ?, description = ?, passing_score = ?, status = ?
+      `UPDATE quizzes SET course_id = ?, lesson_id = ?, title = ?, description = ?, passing_score = ?, drip_days = ?, status = ?
        WHERE id = ?`,
       [
         courseId,
@@ -132,6 +134,7 @@ const update = async (quizId, coachId, body) => {
         String(body.title ?? existing.title).trim(),
         body.description ?? existing.description ?? null,
         Number(body.passingScore ?? body.passMark ?? existing.passingScore ?? 50),
+        Number(body.dripDays ?? existing.dripDays ?? 0),
         body.status || existing.status || 'draft',
         quizId,
       ]
@@ -150,7 +153,7 @@ const remove = async (quizId, coachId) => {
 
 const listForStudent = async (studentId) => {
   const rows = await db.query(
-    `SELECT q.*, c.title AS course_title, l.title AS lesson_title,
+    `SELECT q.*, c.title AS course_title, l.title AS lesson_title, e.created_at AS enrollment_date,
             (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS questions,
             (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.student_id = ?) AS attempts,
             (SELECT COALESCE(MAX(score), 0) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.student_id = ?) AS avg_score
@@ -162,22 +165,39 @@ const listForStudent = async (studentId) => {
      ORDER BY q.created_at DESC`,
     [studentId, studentId, studentId]
   )
+  const now = Date.now()
   const quizzes = await Promise.all(rows.map(async (row) => {
     const questions = await db.query('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order, id', [row.id])
-    return { ...mapQuiz(row), questionItems: questions.map((question) => mapQuestion(question, false)) }
+    const quiz = mapQuiz(row)
+    const enrollmentTime = new Date(row.enrollment_date).getTime()
+    const unlocksAt = new Date(enrollmentTime + quiz.dripDays * 24 * 60 * 60 * 1000)
+    const isLocked = quiz.dripDays > 0 && unlocksAt.getTime() > now
+    return { 
+      ...quiz, 
+      isLocked,
+      unlocksAt: isLocked ? unlocksAt.toISOString() : null,
+      questionItems: questions.map((question) => mapQuestion(question, false)) 
+    }
   }))
   return quizzes
 }
 
 const attempt = async (studentId, quizId, answers = {}) => {
   const quiz = await db.first(
-    `SELECT q.*, e.id AS enrollment_id
+    `SELECT q.*, e.id AS enrollment_id, e.created_at, q.drip_days
      FROM quizzes q
      JOIN enrollments e ON e.course_id = q.course_id AND e.student_id = ? AND e.status = 'active'
      WHERE q.id = ? AND q.status = 'published'`,
     [studentId, quizId]
   )
   if (!quiz) return null
+
+  if (quiz.drip_days > 0) {
+    const unlocksAt = new Date(new Date(quiz.created_at).getTime() + quiz.drip_days * 24 * 60 * 60 * 1000)
+    if (unlocksAt.getTime() > Date.now()) {
+      throw new Error('Quiz is locked')
+    }
+  }
   const questions = await db.query('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY sort_order, id', [quizId])
   const mapped = questions.map((question) => mapQuestion(question, true))
   const maxScore = mapped.reduce((sum, question) => sum + Number(question.marks || 1), 0)
