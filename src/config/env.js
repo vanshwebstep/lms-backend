@@ -27,6 +27,9 @@ const env = {
   jwtSecret: process.env.JWT_SECRET || 'dev-only-change-this-secret',
   accessTtlMs: 2 * 60 * 60 * 1000,
   refreshTtlMs: 7 * 24 * 60 * 60 * 1000,
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || process.env.APP_URL || 'http://localhost:5173')
+    .split(',')
+    .map((o) => o.trim()),
   db: {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT || 3306),
@@ -34,8 +37,6 @@ const env = {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'lms_db',
   },
-  // SMTP host/port/creds AND recipient addresses (to/cc/bcc) now live in the
-  // `email_configs` DB table (per module+action row) — nothing mail-related here anymore.
   razorpay: {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',

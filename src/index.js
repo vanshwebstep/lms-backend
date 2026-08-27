@@ -215,19 +215,15 @@ const getAllowedOrigin = (origin = "") => {
     return env.appUrl;
   }
 
-  if (origin === env.appUrl) {
+  if (env.allowedOrigins.includes(origin)) {
     return origin;
   }
 
   try {
     const parsed = new URL(origin);
-
-    const isLocalHost = [
-      "localhost",
-      "127.0.0.1",
-      "::1",
-    ].includes(parsed.hostname);
-
+    const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(
+      parsed.hostname,
+    );
     if (isLocalHost) {
       return origin;
     }
