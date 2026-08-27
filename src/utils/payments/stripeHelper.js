@@ -1,5 +1,15 @@
 const env = require('../../config/env')
-const stripe = require('stripe')(env.stripe.secretKey || process.env.STRIPE_SECRET_KEY)
+
+let _stripe = null
+const getStripe = () => {
+  if (!_stripe) {
+    if (!env.stripe.secretKey) {
+      throw new Error('Stripe secret key not configured')
+    }
+    _stripe = require('stripe')(env.stripe.secretKey)
+  }
+  return _stripe
+}
 
 // ---------------- CREATE + CONFIRM PAYMENT IN ONE STEP ----------------
 const createAndConfirmPayment = async (
@@ -9,9 +19,9 @@ const createAndConfirmPayment = async (
   metadata = {},
   customerEmail = ''
 ) => {
+  const stripe = getStripe()
   const amountInPaise = Math.round(Number(amount) * 100)
 
-  // create a customer first
   const customer = await stripe.customers.create({
     email: customerEmail,
     name: metadata.name || cardDetails.name || undefined,
@@ -31,6 +41,8 @@ const createAndConfirmPayment = async (
 }
 
 module.exports = {
-  stripe,
+  get stripe() {
+    return getStripe()
+  },
   createAndConfirmPayment,
 }
